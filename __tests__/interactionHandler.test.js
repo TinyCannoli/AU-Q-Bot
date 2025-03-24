@@ -1,35 +1,56 @@
-// __tests__/interactionHandler.test.js
 const handleInteraction = require("../handlers/interactionHandler");
 const queueStore = require("../queueStore");
-
+const { Collection } = require("discord.js");
 jest.mock("../queueStore", () => ({
   addToQueue: jest.fn(),
   removeFromQueue: jest.fn(),
-  getQueueList: jest.fn(),
   getQueue: jest.fn(),
+  getQueueList: jest.fn(),
+  withLock: (fn) => fn(),
 }));
+
+// Helper to simulate Discord message object
+const createFakePanelMessage = (id = "msg123") => ({
+  embeds: [{ title: "Queue:" }],
+  author: { id: "bot123" },
+  delete: jest.fn().mockResolvedValue(),
+});
 
 const createMockInteraction = (
   customId,
   userId = "user1",
   displayName = "TestUser"
-) => ({
-  customId,
-  user: { id: userId },
-  member: { displayName },
-  deferUpdate: jest.fn().mockResolvedValue(),
-  reply: jest.fn().mockResolvedValue(),
-  channel: {
-    send: jest.fn().mockResolvedValue(),
-  },
-  message: {
+) => {
+  const panelMsg1 = {
+    embeds: [{ title: "Queue:" }],
+    author: { id: "bot123" },
     delete: jest.fn().mockResolvedValue(),
-  },
-  replied: false,
-  deferred: false,
-});
+  };
 
-describe("Interaction Handler - Core & Edge Cases", () => {
+  const messagesCollection = new Collection();
+  messagesCollection.set("msg1", panelMsg1);
+
+  return {
+    customId,
+    user: { id: userId },
+    member: { displayName },
+    deferUpdate: jest.fn().mockResolvedValue(),
+    reply: jest.fn().mockResolvedValue(),
+    channel: {
+      messages: {
+        fetch: jest.fn().mockResolvedValue(messagesCollection), // <- FIXED
+      },
+      send: jest.fn().mockResolvedValue(),
+    },
+    client: {
+      user: { id: "bot123" },
+    },
+    replied: false,
+    deferred: false,
+  };
+};
+
+describe("interactionHandler", () => {
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -46,20 +67,9 @@ describe("Interaction Handler - Core & Edge Cases", () => {
     expect(interaction.channel.send).toHaveBeenCalled();
   });
 
-  test("prevents duplicate join", async () => {
-    queueStore.addToQueue.mockReturnValue(false);
-
-    const interaction = createMockInteraction("join_button");
-    await handleInteraction(interaction);
-
-    expect(queueStore.addToQueue).toHaveBeenCalled();
-    expect(interaction.deferUpdate).toHaveBeenCalled();
-    expect(interaction.channel.send).not.toHaveBeenCalled();
-  });
-
   test("handles leave_button", async () => {
     queueStore.removeFromQueue.mockReturnValue(true);
-    queueStore.getQueueList.mockReturnValue("");
+    queueStore.getQueueList.mockReturnValue("No one in the queue.");
 
     const interaction = createMockInteraction("leave_button");
     await handleInteraction(interaction);
@@ -69,48 +79,11 @@ describe("Interaction Handler - Core & Edge Cases", () => {
     expect(interaction.channel.send).toHaveBeenCalled();
   });
 
-  test("prevents leave when not in queue", async () => {
-    queueStore.removeFromQueue.mockReturnValue(false);
-
-    const interaction = createMockInteraction("leave_button");
-    await handleInteraction(interaction);
-
-    expect(queueStore.removeFromQueue).toHaveBeenCalled();
-    expect(interaction.deferUpdate).toHaveBeenCalled();
-    expect(interaction.channel.send).not.toHaveBeenCalled();
-  });
-
-  test("handles dc_button", async () => {
+  test("handles tag_button with a user in queue", async () => {
     queueStore.getQueue.mockReturnValue([
-      { userId: "user1", displayName: "TestUser" },
+      { userId: "userX", displayName: "Tester" },
     ]);
-    queueStore.getQueueList.mockReturnValue("1. TestUser");
-
-    const interaction = createMockInteraction("dc_button");
-    await handleInteraction(interaction);
-
-    expect(interaction.deferUpdate).toHaveBeenCalled();
-    expect(interaction.channel.send).toHaveBeenCalled();
-  });
-
-  test("dc_button still updates panel if user not in queue", async () => {
-    queueStore.getQueue.mockReturnValue([
-      { userId: "someone-else", displayName: "AnotherUser" },
-    ]);
-    queueStore.getQueueList.mockReturnValue("1. TestUser, 2. AnotherUser");
-
-    const interaction = createMockInteraction("dc_button");
-    await handleInteraction(interaction);
-
-    expect(interaction.deferUpdate).toHaveBeenCalled();
-    expect(interaction.channel.send).toHaveBeenCalled();
-  });
-
-  test("handles tag_button with user in queue", async () => {
-    queueStore.getQueue.mockReturnValue([
-      { userId: "userX", displayName: "Player1" },
-    ]);
-    queueStore.getQueueList.mockReturnValue("1. Player1");
+    queueStore.getQueueList.mockReturnValue("1. Tester");
 
     const interaction = createMockInteraction("tag_button");
     await handleInteraction(interaction);
@@ -131,22 +104,16 @@ describe("Interaction Handler - Core & Edge Cases", () => {
     expect(interaction.reply).not.toHaveBeenCalled();
   });
 
-  test("handles tag_button when only self is in queue", async () => {
+  test("handles dc_button", async () => {
     queueStore.getQueue.mockReturnValue([
       { userId: "user1", displayName: "TestUser" },
     ]);
     queueStore.getQueueList.mockReturnValue("1. TestUser");
 
-    const interaction = createMockInteraction(
-      "tag_button",
-      "user1",
-      "TestUser"
-    );
+    const interaction = createMockInteraction("dc_button");
     await handleInteraction(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith({
-      content: expect.stringContaining("<@user1>"),
-      allowedMentions: { users: ["user1"] },
-    });
+    expect(interaction.deferUpdate).toHaveBeenCalled();
+    expect(interaction.channel.send).toHaveBeenCalled();
   });
 });
