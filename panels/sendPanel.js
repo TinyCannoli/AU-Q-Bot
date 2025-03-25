@@ -1,35 +1,40 @@
 const createQueuePanel = require("../utils/createQueuePanel");
 
 module.exports = async function sendInitialPanel(client) {
-  const channelId = process.env.PANEL_CHANNEL_ID;
-  const channel = await client.channels.fetch(channelId);
+  const channelIds = process.env.PANEL_CHANNEL_IDS?.split(",") || [];
 
-  if (!channel || !channel.isTextBased()) {
-    console.error("❌ Panel channel not found or not text-based.");
-    return;
-  }
+  for (const channelId of channelIds) {
+    try {
+      const channel = await client.channels.fetch(channelId.trim());
 
-  const { embed, row } = createQueuePanel();
+      if (!channel || !channel.isTextBased()) {
+        console.error(`❌ Channel ${channelId} not found or not text-based.`);
+        continue;
+      }
 
-  try {
-    // Delete old panels
-    const messages = await channel.messages.fetch({ limit: 10 });
-    const panels = messages.filter(
-      (m) => m.embeds[0]?.title === "Queue:" && m.author?.id === client.user.id
-    );
-    for (const msg of panels.values()) {
-      try {
-        await msg.delete();
-      } catch {}
+      const { embed, row } = createQueuePanel();
+
+      // Delete old panels
+      const messages = await channel.messages.fetch({ limit: 10 });
+      const panels = messages.filter(
+        (m) =>
+          m.embeds?.[0]?.title === "Queue:" && m.author?.id === client.user.id
+      );
+
+      for (const msg of panels.values()) {
+        try {
+          await msg.delete();
+        } catch {}
+      }
+
+      await channel.send({
+        embeds: [embed],
+        components: [row],
+      });
+
+      console.log(`✅ Sent panel to channel ${channelId}`);
+    } catch (err) {
+      console.error(`❌ Failed to send panel to ${channelId}:`, err);
     }
-
-    await channel.send({
-      embeds: [embed],
-      components: [row],
-    });
-
-    console.log("✅ Initial queue panel sent.");
-  } catch (err) {
-    console.error("❌ Failed to send initial panel:", err);
   }
 };

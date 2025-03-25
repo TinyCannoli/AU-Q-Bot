@@ -1,19 +1,24 @@
-const queue = [];
-let lock = Promise.resolve();
+const queues = new Map();
+const locks = new Map();
 
-function getQueue() {
-  return queue;
+function getQueue(channelId) {
+  if (!queues.has(channelId)) {
+    queues.set(channelId, []);
+  }
+  return queues.get(channelId);
 }
 
-function addToQueue(userId, displayName) {
+function addToQueue(channelId, userId, displayName) {
+  const queue = getQueue(channelId);
   if (!queue.find((p) => p.userId === userId)) {
-    queue.push({ userId, displayName, timestamp: Date.now() });
+    queue.push({ userId, displayName });
     return true;
   }
   return false;
 }
 
-function removeFromQueue(userId) {
+function removeFromQueue(channelId, userId) {
+  const queue = getQueue(channelId);
   const index = queue.findIndex((p) => p.userId === userId);
   if (index !== -1) {
     queue.splice(index, 1);
@@ -22,14 +27,22 @@ function removeFromQueue(userId) {
   return false;
 }
 
-function getQueueList() {
+function getQueueList(channelId) {
+  const queue = getQueue(channelId);
   if (queue.length === 0) return "\nNo one in the queue.";
   return `\n${queue.map((p, i) => `${i + 1}. ${p.displayName}`).join("\n")}`;
 }
 
-function withLock(fn) {
-  const run = lock.then(() => fn().catch(console.error));
-  lock = run.catch(() => {}); // Prevent lock breakage
+function withLock(channelId, fn) {
+  if (!locks.has(channelId)) {
+    locks.set(channelId, Promise.resolve());
+  }
+
+  const run = locks.get(channelId).then(() => fn().catch(console.error));
+  locks.set(
+    channelId,
+    run.catch(() => {})
+  ); // Maintain lock chain
   return run;
 }
 

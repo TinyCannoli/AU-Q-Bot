@@ -14,26 +14,27 @@ const {
 } = require("discord.js");
 
 module.exports = async function handleInteraction(interaction) {
+  const channelId = interaction.channel.id;
   const userId = interaction.user.id;
   const displayName = interaction.member.displayName;
 
-  await withLock(async () => {
+  await withLock(channelId, async () => {
     let queueChanged = false;
 
     try {
       switch (interaction.customId) {
         case "join_button":
-          if (addToQueue(userId, displayName)) queueChanged = true;
+          if (addToQueue(channelId, userId, displayName)) queueChanged = true;
           await interaction.deferUpdate();
           break;
 
         case "leave_button":
-          if (removeFromQueue(userId)) queueChanged = true;
+          if (removeFromQueue(channelId, userId)) queueChanged = true;
           await interaction.deferUpdate();
           break;
 
         case "tag_button": {
-          const queue = getQueue();
+          const queue = getQueue(channelId);
           if (queue.length === 0) {
             await interaction.deferUpdate();
             return;
@@ -48,10 +49,10 @@ module.exports = async function handleInteraction(interaction) {
         }
 
         case "dc_button": {
-          const q = getQueue();
-          const index = q.findIndex((p) => p.userId === userId);
-          if (index !== -1) q.splice(index, 1);
-          q.unshift({ userId, displayName, timestamp: Date.now() });
+          const queue = getQueue(channelId);
+          const index = queue.findIndex((p) => p.userId === userId);
+          if (index !== -1) queue.splice(index, 1);
+          queue.unshift({ userId, displayName });
           queueChanged = true;
           await interaction.deferUpdate();
           break;
@@ -59,7 +60,7 @@ module.exports = async function handleInteraction(interaction) {
       }
 
       if (queueChanged) {
-        const queueText = getQueueList();
+        const queueText = getQueueList(channelId);
 
         const embed = new EmbedBuilder()
           .setTitle("Queue:")
