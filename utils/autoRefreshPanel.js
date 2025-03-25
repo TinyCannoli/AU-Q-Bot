@@ -2,20 +2,31 @@
 
 const createQueuePanel = require("./createQueuePanel");
 
-let messageCount = 0;
 const THRESHOLD = 10;
+const messageCounts = new Map();
+const ALLOWED_CHANNELS = process.env.PANEL_CHANNEL_IDS?.split(",") || [];
 
 async function autoRefreshPanel(message) {
-  // Ignore bots or non-text channels
-  if (message.author.bot || !message.channel.isTextBased()) return;
+  // Ignore bots, non-text channels, or unapproved channels
+  if (
+    message.author.bot ||
+    !message.channel.isTextBased() ||
+    !ALLOWED_CHANNELS.includes(message.channel.id)
+  ) {
+    return;
+  }
 
-  messageCount++;
+  const currentCount = messageCounts.get(message.channel.id) || 0;
+  const newCount = currentCount + 1;
 
-  if (messageCount < THRESHOLD) return;
+  if (newCount < THRESHOLD) {
+    messageCounts.set(message.channel.id, newCount);
+    return;
+  }
 
-  messageCount = 0;
+  messageCounts.set(message.channel.id, 0); // Reset count
 
-  const { embed, row } = createQueuePanel();
+  const { embed, row } = createQueuePanel(message.channel.id);
 
   try {
     const messages = await message.channel.messages.fetch({ limit: 20 });
@@ -37,7 +48,7 @@ async function autoRefreshPanel(message) {
       components: [row],
     });
 
-    console.log("🔄 Auto-refreshed panel after 10 messages");
+    console.log(`🔄 Auto-refreshed panel in #${message.channel.id}`);
   } catch (err) {
     console.error("❌ Failed to auto-refresh panel:", err);
   }
