@@ -42,7 +42,7 @@ function withLock(channelId, fn) {
   locks.set(
     channelId,
     run.catch(() => {})
-  ); // Maintain lock chain
+  );
   return run;
 }
 
